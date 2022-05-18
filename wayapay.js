@@ -1,4 +1,4 @@
-var WirePay = (function () {
+var WayaPay = (function () {
   var backendDomain =
     "https://services.staging.wayapay.ng/payment-gateway/api/v1/";
   var backendDomainForLive =
