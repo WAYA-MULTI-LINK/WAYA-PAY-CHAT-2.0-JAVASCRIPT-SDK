@@ -58,7 +58,7 @@ var WirePay = (function () {
             success: true,
             message: response.message,
             data: {
-              authorizeUrl: redirectUrl + "?_tranId=" + response.tranId,
+              authorizeUrl: redirectUrl + "?_tranId=" + response.data.tranId,
               transactionId: response.tranId,
               customerName: response.name,
               customerId: response.customerId,
