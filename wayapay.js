@@ -1,184 +1,220 @@
-var WayaPay = (function () {
-  var backendDomain =
-    "https://services.staging.wayapay.ng/payment-gateway/api/v1/";
-  var backendDomainForLive =
-    "https://services.staging.wayapay.ng/payment-gateway/api/v1/";
-  var redirectUrlForTest = "https://pay.staging.wayapay.ng/";
-  var redirectUrlForLive = "https://pay.staging.wayapay.ng/";
+"use strict";
 
-  var Initialize = async function (payload) {
-    var domain,
-      redirectUrl = "";
-    return await new Promise(function (resolve, reject) {
-      if (!payload) {
-        resolve({
-          success: false,
-          message:
-            "sorry, cannot find wayaPublicKey or merchantId on the request",
-          data: {
-            authorizeUrl: null,
-            authorizeUrl: null,
-            transactionId: null,
-            customerName: null,
-            customerId: null,
-            customerAvoid: null,
-          },
-        });
-      } else if (
-        !payload.wayaPublicKey ||
-        !payload.merchantId ||
-        payload.wayaPublicKey === null ||
-        payload.merchantId === null
-      ) {
-        resolve({
-          success: false,
-          message: "sorry, wayaPublicKey or merchantId is a compulsory field",
-          data: {
-            authorizeUrl: null,
-            authorizeUrl: null,
-            transactionId: null,
-            customerName: null,
-            customerId: null,
-            customerAvoid: null,
-          },
-        });
-      }
-      if (payload.mode && payload.mode === "Live") {
-        domain = backendDomainForLive;
-        redirectUrl = redirectUrlForLive;
-      } else {
-        domain = backendDomain;
-        redirectUrl = redirectUrlForTest;
-      }
-      var xhttp = new XMLHttpRequest();
-      xhttp.onload = function () {
-        var response = JSON.parse(xhttp.responseText);
-        if (xhttp.status === 200 && response.status === true) {
-          resolve({
-            success: true,
-            message: response.message,
-            data: {
-              authorizeUrl: redirectUrl + "?_tranId=" + response.data.tranId,
-              transactionId: response.tranId,
-              customerName: response.name,
-              customerId: response.customerId,
-              customerAvoid: response.customerAvoid,
-            },
-          });
-        } else if (xhttp.status === 400) {
-          resolve({
-            success: false,
-            message: response.message,
-            data: {
-              authorizeUrl: null,
-              authorizeUrl: null,
-              transactionId: null,
-              customerName: null,
-              customerId: null,
-              customerAvoid: null,
-            },
-          });
-        } else if (xhttp.status === 500) {
-          resolve({
-            success: false,
-            message:
-              "Sorry, Error occurred on the server while processing. Please contact the admin",
-            data: {
-              authorizeUrl: null,
-              authorizeUrl: null,
-              transactionId: null,
-              customerName: null,
-              customerId: null,
-              customerAvoid: null,
-            },
-          });
-        }
-      };
-      xhttp.onerror = function () {
-        resolve({
-          success: false,
-          message: "Sorry, Service unavailable. Please try again later",
-          data: {
-            authorizeUrl: null,
-            authorizeUrl: null,
-            transactionId: null,
-            customerName: null,
-            customerId: null,
-            customerAvoid: null,
-          },
-        });
-      };
-      xhttp.open("POST", domain + "request/transaction");
-      xhttp.setRequestHeader("Content-type", "application/json");
-      xhttp.send(JSON.stringify(payload));
+const axios = require("axios");
+
+const { API_BASE, PAYMENT_LINK } = require("./constants");
+const { isEmpty, error } = require("./utils");
+
+class WayaPayClient {
+  constructor({ merchantId, publicKey, environment = "development" }) {
+    if (isEmpty(merchantId)) {
+      throw new Error("merchantId is required");
+    }
+
+    if (isEmpty(publicKey)) {
+      throw new Error("publicKey is required");
+    }
+
+    const isProd =
+      environment.trim().toLowerCase() === "production" ||
+      environment.trim().toLowerCase() === "prod";
+
+    this.merchantId = merchantId;
+    this.publicKey = publicKey;
+
+    this.baseUrl = isProd ? API_BASE.prod : API_BASE.test;
+
+    this.paymentLink = isProd ? PAYMENT_LINK.prod : PAYMENT_LINK.test;
+
+    this.client = axios.create({
+      baseURL: this.baseUrl,
+      headers: {
+        "Content-Type": "application/json",
+        "Merchant-ID": this.merchantId,
+        "API-Secret-Key": this.publicKey,
+      },
+      timeout: 30000,
     });
-  };
+  }
 
-  var Verify = async function (payload) {
-    var domain = "";
-    if (!payload) {
-      resolve({
-        success: false,
-        message: "Please supply transactionId",
-        data: {},
-      });
-    } else if (payload && !payload.transactionId) {
-      resolve({
-        success: false,
-        message: "Please supply transactionId",
-        data: {},
-      });
-    }
-    var xhttp = new XMLHttpRequest();
-    if (payload.mode && payload.mode === "Live") {
-      domain = backendDomainForLive;
-    } else {
-      domain = backendDomain;
-    }
-    xhttp.onload = function () {
-      var response = JSON.parse(xhttp.responseText);
-      if (xhttp.status === 200 && response.status === true) {
-        resolve({
-          success: true,
-          message: response.message,
-          data: response.data,
-        });
-      } else if (xhttp.status === 400) {
-        resolve({
-          success: false,
-          message: response.message,
-          data: {},
-        });
-      } else if (xhttp.status === 500) {
-        resolve({
-          success: false,
-          message:
-            "Sorry, Error occurred on the server while processing. Please contact the admin",
-          data: {},
-        });
+  async initializePayment(payload) {
+    try {
+      const {
+        currency,
+        amount,
+        callBackUrl,
+        idempotencyKey,
+        paymentRef,
+        metadata,
+      } = payload;
+
+      if (isEmpty(currency)) {
+        return error("currency is required");
       }
+
+      if (isEmpty(amount)) {
+        return error("amount is required");
+      }
+
+      if (isEmpty(callBackUrl)) {
+        return error("callBackUrl is required");
+      }
+
+      if (isEmpty(idempotencyKey)) {
+        return error("idempotencyKey is required");
+      }
+
+      if (isEmpty(paymentRef)) {
+        return error("paymentRef is required");
+      }
+
+      if (!metadata) {
+        return error("metadata is required");
+      }
+
+      if (isEmpty(metadata.firstName)) {
+        return error("metadata.firstName is required");
+      }
+
+      if (isEmpty(metadata.lastName)) {
+        return error("metadata.lastName is required");
+      }
+
+      if (isEmpty(metadata.phoneNumber)) {
+        return error("metadata.phoneNumber is required");
+      }
+
+      if (isEmpty(metadata.emailAddress)) {
+        return error("metadata.emailAddress is required");
+      }
+
+      const { data } = await this.client.post(
+        "/payment-collect/initiate",
+        payload,
+      );
+
+      return {
+        status: true,
+        data: data.data || data,
+      };
+    } catch (err) {
+      return this.handleError(err);
+    }
+  }
+
+  async initiatePayout(payload) {
+    try {
+      const { currency, amount, idempotencyKey, bankCode, accountNumber } =
+        payload;
+
+      if (isEmpty(currency)) {
+        return error("currency is required");
+      }
+
+      if (isEmpty(amount)) {
+        return error("amount is required");
+      }
+
+      if (isEmpty(idempotencyKey)) {
+        return error("idempotencyKey is required");
+      }
+
+      if (isEmpty(bankCode)) {
+        return error("bankCode is required");
+      }
+
+      if (isEmpty(accountNumber)) {
+        return error("accountNumber is required");
+      }
+
+      const { data } = await this.client.post(
+        "/payment-payout/initiate",
+        payload,
+      );
+
+      return {
+        status: true,
+        data,
+      };
+    } catch (err) {
+      return this.handleError(err);
+    }
+  }
+
+  async verifyTransaction(transactionRef) {
+    try {
+      if (isEmpty(transactionRef)) {
+        return error("transactionRef is required");
+      }
+
+      const { data } = await this.client.get(
+        `/payment/transaction?ref=${transactionRef}`,
+      );
+
+      return {
+        status: true,
+        data: data.data || data,
+      };
+    } catch (err) {
+      return this.handleError(err);
+    }
+  }
+
+  async fetchBankList() {
+    try {
+      const { data } = await this.client.get("/banks-list");
+
+      return {
+        status: true,
+        data: data.data || data,
+      };
+    } catch (err) {
+      return this.handleError(err);
+    }
+  }
+
+  async verifyAccount(payload) {
+    try {
+      const { accountNumber, bankCode } = payload;
+
+      if (isEmpty(accountNumber)) {
+        return error("accountNumber is required");
+      }
+
+      if (isEmpty(bankCode)) {
+        return error("bankCode is required");
+      }
+
+      const { data } = await this.client.get("/account-verification", {
+        data: payload,
+      });
+
+      return {
+        status: true,
+        data: data.data || data,
+      };
+    } catch (err) {
+      return this.handleError(err);
+    }
+  }
+
+  handleError(error) {
+    if (error.response) {
+      return error.response.data;
+    }
+
+    if (error.request) {
+      return {
+        status: false,
+        message: error.message,
+      };
+    }
+
+    return {
+      status: false,
+      message: error.message,
     };
-    xhttp.onerror = function () {
-      resolve({
-        success: false,
-        message: "Sorry, Service unavailable. Please try again later",
-        data: {},
-      });
-    };
-    xhttp.open("GET", domain + "reference/query/" + payload.transactionId);
-    xhttp.setRequestHeader("Content-type", "application/json");
-    xhttp.send(JSON.stringify(payload));
-  };
-  return {
-    InitializePayment: async function (payload) {
-      return new Promise(async function (resolve, reject) {
-        resolve(Initialize(payload));
-      });
-    },
-    VerifyPayment: async function (a) {
-      return new Promise(async function (resolve, reject) {
-        resolve(Verify(payload));
-      });
-    },
-  };
-})();
+  }
+}
+
+module.exports = WayaPayClient;
